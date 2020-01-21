@@ -27,6 +27,10 @@ namespace BeatSaberMultiplayerLite
         [SerializeField] private int _pushToTalkButton;
         [SerializeField] private string _voiceChatMicrophone;
 
+        [SerializeField] private Vector3 _scoreScreenPosOffset;
+        [SerializeField] private Vector3 _scoreScreenRotOffset;
+        [SerializeField] private Vector3 _scoreScreenScale;
+
 
         private static Config _instance;
 
@@ -188,6 +192,23 @@ namespace BeatSaberMultiplayerLite
             }
         }
 
+        public string PublicAvatarHash
+        {
+            get { return _publicAvatarHash; }
+            set
+            {
+                if (value == null)
+                {
+                    _publicAvatarHash = Data.PlayerInfo.avatarHashPlaceholder;
+                }
+                else
+                {
+                    _publicAvatarHash = value;
+                }
+                MarkDirty();
+            }
+        }
+
         public bool SpectatorMode
         {
             get { return _spectatorMode; }
@@ -233,11 +254,14 @@ namespace BeatSaberMultiplayerLite
             get { return _voiceChatVolume; }
             set
             {
+                if (_voiceChatVolume == value)
+                    return;
                 _voiceChatVolume = value;
+                VoiceChatVolumeChanged?.Invoke(this, value);
                 MarkDirty();
             }
         }
-
+        public event EventHandler<float> VoiceChatVolumeChanged;
         public bool MicEnabled
         {
             get { return _micEnabled; }
@@ -268,12 +292,12 @@ namespace BeatSaberMultiplayerLite
             }
         }
 
-        public int PushToTalkButton
+        public PTTOption PushToTalkButton
         {
-            get { return _pushToTalkButton; }
+            get { return (PTTOption)_pushToTalkButton; }
             set
             {
-                _pushToTalkButton = value;
+                _pushToTalkButton = (int)value;
                 MarkDirty();
             }
         }
@@ -284,6 +308,36 @@ namespace BeatSaberMultiplayerLite
             set
             {
                 _voiceChatMicrophone = value;
+                MarkDirty();
+            }
+        }
+
+        public Vector3 ScoreScreenPosOffset
+        {
+            get { return _scoreScreenPosOffset; }
+            set
+            {
+                _scoreScreenPosOffset = value;
+                MarkDirty();
+            }
+        }
+
+        public Vector3 ScoreScreenRotOffset
+        {
+            get { return _scoreScreenRotOffset; }
+            set
+            {
+                _scoreScreenRotOffset = value;
+                MarkDirty();
+            }
+        }
+
+        public Vector3 ScoreScreenScale
+        {
+            get { return _scoreScreenScale; }
+            set
+            {
+                _scoreScreenScale = value;
                 MarkDirty();
             }
         }
@@ -305,6 +359,10 @@ namespace BeatSaberMultiplayerLite
             _pushToTalk = true;
             _pushToTalkButton = 0;
             _voiceChatMicrophone = null;
+
+            _scoreScreenPosOffset = Vector3.zero;
+            _scoreScreenRotOffset = Vector3.zero;
+            _scoreScreenScale = Vector3.one;
 
             IsDirty = true;
         }
@@ -334,5 +392,47 @@ namespace BeatSaberMultiplayerLite
         void MarkClean() {
             IsDirty = false;
         }
+
+        
     }
+
+    [Flags]
+    public enum PTTOption
+    {
+        None = 0,                                          // 0000
+        LeftTrigger = 1 << 0,                              // 0001                              
+        RightTrigger = 1 << 1,                             // 0010
+        LeftAndRightTrigger = LeftTrigger | RightTrigger,  // 0011
+        AnyTrigger = 1 << 3 | LeftAndRightTrigger          // 0111
+    }
+
+    public static class PPTOptionExtensions
+    {
+        public static bool Satisfies(this PTTOption actualState, PTTOption checkState)
+        {
+            if (checkState == PTTOption.AnyTrigger)
+                return (actualState & PTTOption.AnyTrigger) != 0;
+            return actualState.HasFlag(checkState);
+        }
+
+        public static int OptionIndex(this PTTOption option)
+        {
+            switch (option)
+            {
+                case PTTOption.None:
+                    return 0;
+                case PTTOption.LeftTrigger:
+                    return 1;
+                case PTTOption.RightTrigger:
+                    return 2;
+                case PTTOption.LeftAndRightTrigger:
+                    return 3;
+                case PTTOption.AnyTrigger:
+                    return 4;
+                default:
+                    return 0;
+            }
+        }
+    }
+
 }

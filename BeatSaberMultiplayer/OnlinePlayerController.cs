@@ -50,6 +50,7 @@ namespace BeatSaberMultiplayerLite
             voipSource.clip = null;
             voipSource.spatialize = Config.Instance.SpatialAudio;
             voipSource.loop = true;
+            voipSource.volume = Config.Instance.VoiceChatVolume;
             voipSource.Play();
 
             if (playerInfo != null)
@@ -133,7 +134,7 @@ namespace BeatSaberMultiplayerLite
 
         public void SetBlocksState(bool active)
         {
-            if(active && beatmapCallbackController == null && audioTimeController == null && beatmapSpawnController == null && _leftSaber == null && _rightSaber == null)
+            if(active && !playerInfo.updateInfo.playerLevelOptions.characteristicName.ToLower().Contains("degree") && beatmapCallbackController == null && audioTimeController == null && beatmapSpawnController == null && _leftSaber == null && _rightSaber == null)
             {
                 SpawnBeatmapControllers();
                 SpawnSabers();
@@ -383,7 +384,10 @@ namespace BeatSaberMultiplayerLite
 
                 _lastVoipFragIndex = fragIndex;
                 _silentFrames = 0;
-
+                if (Config.Instance.VoiceChatVolume > 1)
+                {
+                    AudioUtils.ApplyGain(data, Config.Instance.VoiceChatVolume);
+                }
                 _voipFragQueue.Write(data, 0, data.Length);
             }
         }

@@ -38,7 +38,17 @@ namespace BeatSaberMultiplayerLite
         public bool needToSendUpdates;
 
         public bool isVoiceChatActive;
-        public bool isRecording;
+        private bool _isRecording;
+        public bool isRecording
+        {
+            get { return _isRecording; }
+            set
+            {
+                if (_isRecording == value)
+                    return;
+                _isRecording = value;
+            }
+        }
 
         private float _PTTReleaseTime;
         private bool _waitingForRecordingDelay;
@@ -110,6 +120,8 @@ namespace BeatSaberMultiplayerLite
 
                     voiceChatListener.OnAudioGenerated -= ProcesVoiceFragment;
                     voiceChatListener.OnAudioGenerated += ProcesVoiceFragment;
+                    Config.Instance.VoiceChatVolumeChanged -= Config_VoiceChatVolumeChanged;
+                    Config.Instance.VoiceChatVolumeChanged += Config_VoiceChatVolumeChanged;
 
                     DontDestroyOnLoad(voiceChatListener.gameObject);
 
@@ -117,6 +129,11 @@ namespace BeatSaberMultiplayerLite
                 }
 
             }
+        }
+
+        private void Config_VoiceChatVolumeChanged(object sender, float e)
+        {
+            VoiceChatVolumeChanged(e);
         }
 
         public void ToggleVoiceChat(bool enabled)
@@ -169,6 +186,8 @@ namespace BeatSaberMultiplayerLite
         {
             if (players != null)
             {
+                if (volume > 1f)
+                    volume = 1f;
                 foreach (var player in players.Values.Where(x => x != null && !x.destroyed))
                 {
                     player.SetVoIPVolume(volume);
@@ -413,15 +432,15 @@ namespace BeatSaberMultiplayerLite
                                 if (_scoreScreen == null)
                                 {
                                     _scoreScreen = new GameObject("ScoreScreen", typeof(RectTransform));
-                                    _scoreScreen.transform.position = new Vector3(0f, 4f, 12f);
-                                    _scoreScreen.transform.rotation = Quaternion.Euler(0f, 0f, 0f);
+                                    _scoreScreen.transform.position = new Vector3(0f, 5f, 12f) + Config.Instance.ScoreScreenPosOffset;
+                                    _scoreScreen.transform.rotation = Quaternion.Euler(Config.Instance.ScoreScreenRotOffset);
+                                    _scoreScreen.transform.localScale = Config.Instance.ScoreScreenScale;
 
                                     var rotator = GameObject.FindObjectOfType<FlyingGameHUDRotation>();
 
                                     if (rotator != null)
                                     {
                                         _scoreScreen.transform.SetParent(rotator.transform, true);
-                                        _scoreScreen.transform.position = new Vector3(0f, 5f, 12f);
                                     }
 
                                     var bg = new GameObject("Background", typeof(Canvas), typeof(CanvasRenderer)).AddComponent<Image>();
@@ -443,8 +462,10 @@ namespace BeatSaberMultiplayerLite
                                 for (int i = 0; i < 5; i++)
                                 {
                                     PlayerInfoDisplay buffer = new GameObject("ScoreDisplay " + i).AddComponent<PlayerInfoDisplay>();
-                                    buffer.transform.SetParent(_scoreScreen.transform);
+                                    buffer.transform.SetParent(_scoreScreen.transform, false);
                                     buffer.transform.localPosition = new Vector3(0f, 2.5f - i, 0);
+                                    buffer.transform.localScale = Vector3.one;
+                                    buffer.transform.localRotation = Quaternion.identity;
 
                                     _scoreDisplays.Add(buffer);
                                 }
@@ -600,38 +621,15 @@ namespace BeatSaberMultiplayerLite
                 if (Config.Instance.MicEnabled)
                     if (!Config.Instance.PushToTalk)
                         isRecording = true;
-                    else
-                        switch (Config.Instance.PushToTalkButton)
-                        {
-                            case 0:
-                                isRecording = ControllersHelper.GetLeftGrip();
-                                break;
-                            case 1:
-                                isRecording = ControllersHelper.GetRightGrip();
-                                break;
-                            case 2:
-
-                                isRecording = _vrInputManager.TriggerValue(XRNode.LeftHand) > 0.85f;
-                                break;
-                            case 3:
-                                isRecording = _vrInputManager.TriggerValue(XRNode.RightHand) > 0.85f;
-                                break;
-                            case 4:
-                                isRecording = ControllersHelper.GetLeftGrip() && ControllersHelper.GetRightGrip();
-                                break;
-                            case 5:
-                                isRecording = _vrInputManager.TriggerValue(XRNode.RightHand) > 0.85f && _vrInputManager.TriggerValue(XRNode.LeftHand) > 0.85f;
-                                break;
-                            case 6:
-                                isRecording = ControllersHelper.GetLeftGrip() || ControllersHelper.GetRightGrip();
-                                break;
-                            case 7:
-                                isRecording = _vrInputManager.TriggerValue(XRNode.RightHand) > 0.85f || _vrInputManager.TriggerValue(XRNode.LeftHand) > 0.85f;
-                                break;
-                            default:
-                                isRecording = Input.anyKey;
-                                break;
-                        }
+                    else if(_vrInputManager != null)
+                    {
+                        PTTOption currentState = PTTOption.None;
+                        if (_vrInputManager.TriggerValue(XRNode.LeftHand) > 0.85f)
+                            currentState |= PTTOption.LeftTrigger;
+                        if (_vrInputManager.TriggerValue(XRNode.RightHand) > 0.85f)
+                            currentState |= PTTOption.RightTrigger;
+                        isRecording = currentState.Satisfies(Config.Instance.PushToTalkButton);
+                    }
                 else
                     isRecording = false;
 
@@ -757,23 +755,26 @@ namespace BeatSaberMultiplayerLite
 
             if (Client.Instance.playerInfo.avatarHash == null || Client.Instance.playerInfo.avatarHash.Length == 0 || Client.Instance.playerInfo.avatarHash == PlayerInfo.avatarHashPlaceholder)
             {
-                /*
-                if (Config.Instance.SeparateAvatarForMultiplayer)
+
+
+                //if (Config.Instance.SeparateAvatarForMultiplayer)
+                //{
+                if (!string.IsNullOrEmpty(Config.Instance.PublicAvatarHash))
                 {
                     Client.Instance.playerInfo.avatarHash = Config.Instance.PublicAvatarHash;
                     sendFullUpdate = true;
+#if DEBUG
+                    if (Client.Instance.playerInfo.avatarHash != PlayerInfo.avatarHashPlaceholder)
+                    {
+                        Plugin.log.Debug("Updating avatar hash... New hash: " + (Client.Instance.playerInfo.avatarHash));
+                    }
+#endif
                 }
-                else*/
+                else
                 {
-                    Client.Instance.playerInfo.avatarHash = null; //ModelSaberAPI.cachedAvatars.FirstOrDefault(x => x.Value == CustomAvatar.Plugin.Instance.PlayerAvatarManager.GetCurrentAvatar()).Key;
+                    Client.Instance.playerInfo.avatarHash = PlayerInfo.avatarHashPlaceholder; //ModelSaberAPI.cachedAvatars.FirstOrDefault(x => x.Value == CustomAvatar.Plugin.Instance.PlayerAvatarManager.GetCurrentAvatar()).Key;
                     sendFullUpdate = true;
                 }
-#if DEBUG
-                if (Client.Instance.playerInfo.avatarHash != PlayerInfo.avatarHashPlaceholder)
-                {
-                    Plugin.log.Debug("Updating avatar hash... New hash: " + (Client.Instance.playerInfo.avatarHash));
-                }
-#endif
             }
 
             if (_avatarInput == null)
@@ -1004,7 +1005,9 @@ namespace BeatSaberMultiplayerLite
             yield return new WaitUntil(delegate () { return FindObjectOfType<ScoreController>() != null; });
 
             Plugin.log.Debug("Game controllers found!");
-
+            Plugin.log.Warn($"Score Submission disabled");
+            BS_Utils.Gameplay.ScoreSubmission.DisableSubmission("Beat Saber Multiplayer Lite");
+            BS_Utils.Gameplay.ScoreSubmission.DisableScoreSaberScoreSubmission();
             _scoreController = FindObjectOfType<ScoreController>();
 
             if (_scoreController != null)

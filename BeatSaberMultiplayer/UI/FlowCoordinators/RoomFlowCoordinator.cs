@@ -51,7 +51,7 @@ namespace BeatSaberMultiplayerLite.UI.FlowCoordinators
         ModalKeyboard _searchKeyboard;
         SongSelectionViewController _songSelectionViewController;
         DifficultySelectionViewController _difficultySelectionViewController;
-        BeatSaberMultiplayerLite.UI.ViewControllers.RoomScreen.ResultsViewController _resultsViewController;
+        MultiplayerResultsViewController _resultsViewController;
         PlayingNowViewController _playingNowViewController;
         LevelPacksUIViewController _levelPacksViewController;
 
@@ -471,7 +471,7 @@ namespace BeatSaberMultiplayerLite.UI.FlowCoordinators
 
                                     if (roomInfo.roomState == RoomState.InGame)
                                         UpdateInGameLeaderboard(currentTime, totalTime);
-                                    else if(roomInfo.roomState == RoomState.Results)
+                                    else if (roomInfo.roomState == RoomState.Results)
                                         UpdateResultsLeaderboard(currentTime, totalTime);
 
                                     _playerManagementViewController.UpdatePlayerList(roomInfo.roomState);
@@ -480,10 +480,11 @@ namespace BeatSaberMultiplayerLite.UI.FlowCoordinators
                             break;
                         case CommandType.PlayerReady:
                             {
+
                                 int playersReady = msg.ReadInt32();
                                 int playersTotal = msg.ReadInt32();
 
-                                if (roomInfo.roomState == RoomState.Preparing && _difficultySelectionViewController != null)
+                                if (_difficultySelectionViewController != null)
                                 {
                                     _difficultySelectionViewController.SetPlayersReady(playersReady, playersTotal);
                                 }
@@ -630,14 +631,15 @@ namespace BeatSaberMultiplayerLite.UI.FlowCoordinators
 
                 PlayerSpecificSettings playerSettings = playerData.playerSpecificSettings;
                 OverrideEnvironmentSettings environmentOverrideSettings = playerData.overrideEnvironmentSettings;
-                ColorSchemesSettings colorSchemesSettings = playerData.colorSchemesSettings;
+
+                ColorScheme colorSchemesSettings = playerData.colorSchemesSettings.overrideDefaultColors ? playerData.colorSchemesSettings.GetColorSchemeForId(playerData.colorSchemesSettings.selectedColorSchemeId) : null;
 
                 roomInfo.roomState = RoomState.InGame;
 
                 IDifficultyBeatmap difficultyBeatmap = level.GetDifficultyBeatmap(characteristic, difficulty, false);
 
                 Plugin.log.Debug($"Starting song: name={level.songName}, levelId={level.levelID}, difficulty={difficulty}");
-
+                
                 Client.Instance.MessageReceived -= PacketReceived;
 
                 try
@@ -654,7 +656,7 @@ namespace BeatSaberMultiplayerLite.UI.FlowCoordinators
                 practiceSettings.songSpeedMul = modifiers.songSpeedMul;
                 practiceSettings.startInAdvanceAndClearNotes = true;
 
-                menuSceneSetupData.StartStandardLevel(difficultyBeatmap, environmentOverrideSettings, colorSchemesSettings.GetColorSchemeForId(colorSchemesSettings.selectedColorSchemeId), modifiers, playerSettings, startTime > 1f ? practiceSettings : null, "Lobby", false, () => { }, (StandardLevelScenesTransitionSetupDataSO sender, LevelCompletionResults levelCompletionResults) => { InGameOnlineController.Instance.SongFinished(levelCompletionResults, difficultyBeatmap, modifiers, startTime > 1f); });
+                menuSceneSetupData.StartStandardLevel(difficultyBeatmap, environmentOverrideSettings, colorSchemesSettings, modifiers, playerSettings, startTime > 1f ? practiceSettings : null, "Lobby", false, () => { }, (StandardLevelScenesTransitionSetupDataSO sender, LevelCompletionResults levelCompletionResults) => { InGameOnlineController.Instance.SongFinished(levelCompletionResults, difficultyBeatmap, modifiers, startTime > 1f); });
 
                 //UpdateDiscordActivity(roomInfo);
             }
@@ -721,7 +723,7 @@ namespace BeatSaberMultiplayerLite.UI.FlowCoordinators
         {
 
             if (_songSelectionViewController != null)
-            {                
+            {
                 if (_roomNavigationController.viewControllers.IndexOf(_songSelectionViewController) >= 0)
                 {
                     PopViewControllerFromNavigationController(_roomNavigationController, null, true);
@@ -825,7 +827,10 @@ namespace BeatSaberMultiplayerLite.UI.FlowCoordinators
             {
                 _difficultySelectionViewController = BeatSaberUI.CreateViewController<DifficultySelectionViewController>();
                 _difficultySelectionViewController.discardPressed += DiscardPressed;
-                _difficultySelectionViewController.playPressed += (level, characteristic, difficulty) => { PlayPressed(level, characteristic, difficulty, _playerManagementViewController.modifiers); };
+                _difficultySelectionViewController.playPressed += (level, characteristic, difficulty) =>
+                {
+                    PlayPressed(level, characteristic, difficulty, _playerManagementViewController.modifiers);
+                };
                 _difficultySelectionViewController.levelOptionsChanged += UpdateLevelOptions;
             }
 
@@ -1005,7 +1010,7 @@ namespace BeatSaberMultiplayerLite.UI.FlowCoordinators
         {
             if (_resultsViewController == null)
             {
-                _resultsViewController = BeatSaberUI.CreateViewController<BeatSaberMultiplayerLite.UI.ViewControllers.RoomScreen.ResultsViewController>();
+                _resultsViewController = BeatSaberUI.CreateViewController<MultiplayerResultsViewController>();
             }
             if (_roomNavigationController.viewControllers.IndexOf(_resultsViewController) < 0)
             {
@@ -1259,7 +1264,7 @@ namespace BeatSaberMultiplayerLite.UI.FlowCoordinators
                 Instance = true,
             };
 
-            Plugin.discord?.GetActivityManager().UpdateActivity(Plugin.discordActivity, (result) => { Plugin.log.Debug("Update Discord activity result: " + result); });
+            Plugin.discord?.UpdateActivity(Plugin.discordActivity);
         }
 
         private string GetActivityDetails(bool includeAuthorName)

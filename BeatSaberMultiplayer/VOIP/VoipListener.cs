@@ -36,6 +36,9 @@ namespace BeatSaberMultiplayerLite.VOIP
                     index += 3;
                     lastPos = Math.Max(Microphone.GetPosition(_usedMicrophone) - recordingBuffer.Length, 0);
                 }
+                if (_isListening == value)
+                    return;
+                Plugin.LogLocation($"IsListening Changed: {value}");
                 _isListening = value;
             }
         }
@@ -54,31 +57,37 @@ namespace BeatSaberMultiplayerLite.VOIP
 
         private void Instance_voiceChatMicrophoneChanged(string newMic)
         {
-            if(recording != null)
+
+            Plugin.LogLocation("Begin Instance_voiceChatMicrophoneChanged");
+            if (recording != null)
             {
                 StopRecording();
                 _usedMicrophone = newMic;
                 StartRecording();
             }
+            {
+                Plugin.log.Warn("Recording is null");
+            }
         }
 
         public void StartRecording()
         {
+            Plugin.LogLocation("Begin StartRecording");
             if (Microphone.devices.Length == 0) return;
 
+            Plugin.LogLocation("Microphone.devices.Length != 0");
             inputFreq = AudioUtils.GetFreqForMic();
-            
-            encoder = SpeexCodex.Create(BandMode.Wide);
 
+            encoder = SpeexCodex.Create(BandMode.Wide);
             var ratio = inputFreq / (float)AudioUtils.GetFrequency(encoder.mode);
             int sizeRequired = (int)(ratio * encoder.dataSize);
             recordingBuffer = new float[sizeRequired];
             resampleBuffer = new float[encoder.dataSize];
-            
+
             if (AudioUtils.GetFrequency(encoder.mode) == inputFreq)
             {
                 recordingBuffer = resampleBuffer;
-            }            
+            }
 
             recording = Microphone.Start(_usedMicrophone, true, 20, inputFreq);
             Plugin.log.Debug("Used microphone: " + (_usedMicrophone == null ? "DEFAULT" : _usedMicrophone));
@@ -95,7 +104,7 @@ namespace BeatSaberMultiplayerLite.VOIP
 
         void Update()
         {
-            if ( recording == null)
+            if (recording == null)
             {
                 return;
             }
@@ -109,31 +118,31 @@ namespace BeatSaberMultiplayerLite.VOIP
                 lastPos = 0;
                 length = now;
             }
-            
+
             while (length >= recordingBuffer.Length)
             {
                 if (_isListening && recording.GetData(recordingBuffer, lastPos))
                 {
-                    //Send..
-                    index++;
-                    if (OnAudioGenerated != null )
-                    {
-                        //Downsample if needed.
-                        if (recordingBuffer != resampleBuffer)
+                        //Send..
+                        index++;
+                        if (OnAudioGenerated != null)
                         {
-                            AudioUtils.Resample(recordingBuffer, resampleBuffer, inputFreq, AudioUtils.GetFrequency(encoder.mode));
+                            //Downsample if needed.
+                            if (recordingBuffer != resampleBuffer)
+                            {
+                                AudioUtils.Resample(recordingBuffer, resampleBuffer, inputFreq, AudioUtils.GetFrequency(encoder.mode));
+                            }
+
+                            var data = encoder.Encode(resampleBuffer);
+
+                            VoipFragment frag = new VoipFragment(0, index, data, encoder.mode);
+
+                            OnAudioGenerated?.Invoke(frag);
                         }
-
-                        var data = encoder.Encode(resampleBuffer);
-
-                        VoipFragment frag = new VoipFragment(0, index, data, encoder.mode);
-
-                        OnAudioGenerated?.Invoke(frag);
                     }
-                }
                 length -= recordingBuffer.Length;
                 lastPos += recordingBuffer.Length;
-            }            
+            }
         }
 
         void OnDestroy()
