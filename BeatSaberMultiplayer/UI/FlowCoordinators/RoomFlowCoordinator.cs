@@ -1,6 +1,7 @@
 ﻿using BeatSaberMarkupLanguage;
 using BeatSaberMarkupLanguage.Components;
 using BeatSaberMultiplayerLite.Data;
+using BeatSaberMultiplayerLite.DiscordInterface;
 using BeatSaberMultiplayerLite.Misc;
 using BeatSaberMultiplayerLite.UI.ViewControllers.RoomScreen;
 using BS_Utils.Utilities;
@@ -13,10 +14,6 @@ using System.IO;
 using System.Linq;
 using System.Threading;
 using UnityEngine;
-#if DISCORDCORE
-using Discord;
-using DiscordCore;
-#endif
 namespace BeatSaberMultiplayerLite.UI.FlowCoordinators
 {
     public enum SortMode { Default, Difficulty, Newest };
@@ -45,6 +42,7 @@ namespace BeatSaberMultiplayerLite.UI.FlowCoordinators
         public LevelCompletionResults levelResults;
         public int lastHighscoreForLevel;
         public bool lastHighscoreValid;
+        public bool PassHostEnabled = true;
 
         AdditionalContentModel _contentModelSO;
         BeatmapLevelsModel _beatmapLevelsModel;
@@ -89,6 +87,7 @@ namespace BeatSaberMultiplayerLite.UI.FlowCoordinators
 
         protected override void DidActivate(bool firstActivation, ActivationType activationType)
         {
+            PassHostEnabled = true;
             _beatmapCharacteristics = Resources.FindObjectsOfTypeAll<BeatmapCharacteristicSO>();
             _beatmapLevelsModel = Resources.FindObjectsOfTypeAll<BeatmapLevelsModel>().FirstOrDefault();
             _contentModelSO = Resources.FindObjectsOfTypeAll<AdditionalContentModel>().FirstOrDefault();
@@ -96,6 +95,7 @@ namespace BeatSaberMultiplayerLite.UI.FlowCoordinators
             if (firstActivation && activationType == ActivationType.AddedToHierarchy)
             {
                 _playerManagementViewController = BeatSaberUI.CreateViewController<PlayerManagementViewController>();
+                _playerManagementViewController.ParentFlowCoordinator = this;
                 _playerManagementViewController.gameplayModifiersChanged += UpdateLevelOptions;
                 _playerManagementViewController.transferHostButtonPressed += TransferHostConfirmation;
 
@@ -216,7 +216,7 @@ namespace BeatSaberMultiplayerLite.UI.FlowCoordinators
             Client.Instance.inRoom = false;
             PopAllViewControllers();
             SetLeftScreenViewController(_playerManagementViewController);
-            //PluginUI.instance.SetLobbyDiscordActivity();
+            PluginUI.instance.SetLobbyDiscordActivity();
             didFinishEvent?.Invoke();
         }
 
@@ -548,8 +548,7 @@ namespace BeatSaberMultiplayerLite.UI.FlowCoordinators
                     break;
             }
             _playerManagementViewController.UpdateViewController(Client.Instance.isHost, (int)state <= 1);
-
-            //UpdateDiscordActivity(roomInfo);
+            UpdateDiscordActivity(roomInfo);
         }
 
         private void UpdateLevelOptions()
@@ -586,8 +585,7 @@ namespace BeatSaberMultiplayerLite.UI.FlowCoordinators
                             Client.Instance.playerInfo.updateInfo.playerLevelOptions = new LevelOptionsInfo(BeatmapDifficulty.Hard, _playerManagementViewController.modifiers, "Standard");
                         }
                     }
-
-                    //UpdateDiscordActivity(roomInfo);
+                    UpdateDiscordActivity(roomInfo);
                 }
             }
             catch (Exception e)
@@ -673,9 +671,7 @@ namespace BeatSaberMultiplayerLite.UI.FlowCoordinators
                 }
 
                 menuSceneSetupData.StartStandardLevel(difficultyBeatmap, environmentOverrideSettings, colorSchemesSettings, modifiers, playerSettings, startTime > 1f ? practiceSettings : null, "Lobby", false, () => { }, InGameOnlineController.Instance.SongFinished);
-#if DISCORDCORE
                 UpdateDiscordActivity(roomInfo);
-#endif
             }
             else
             {
@@ -1022,9 +1018,9 @@ namespace BeatSaberMultiplayerLite.UI.FlowCoordinators
                 }
             }
         }
-
         public void ShowResultsLeaderboard(SongInfo song)
         {
+            PassHostEnabled = false;
             if (_resultsViewController == null)
             {
                 _resultsViewController = BeatSaberUI.CreateViewController<MultiplayerResultsViewController>();
@@ -1051,6 +1047,7 @@ namespace BeatSaberMultiplayerLite.UI.FlowCoordinators
 
         public void HideResultsLeaderboard()
         {
+            PassHostEnabled = true;
             if (_resultsViewController != null)
             {
                 if (_roomNavigationController.viewControllers.IndexOf(_resultsViewController) >= 0)
@@ -1239,10 +1236,9 @@ namespace BeatSaberMultiplayerLite.UI.FlowCoordinators
         }
 
         #region Discord rich presence stuff
-#if DISCORDCORE
         public void UpdateDiscordActivity(RoomInfo roomInfo)
         {
-            ActivityParty partyInfo = new ActivityParty()
+            GameActivityParty partyInfo = new GameActivityParty()
             {
                 Id = $"{ip}:{port}?{roomId}",
                 Size =
@@ -1251,27 +1247,25 @@ namespace BeatSaberMultiplayerLite.UI.FlowCoordinators
                     MaxSize = roomInfo.maxPlayers == 0 ? 256 : roomInfo.maxPlayers
                 }
             };
-
-            ActivityTimestamps timestamps = new ActivityTimestamps()
+            GameActivityTimestamps timestamps = new GameActivityTimestamps()
             {
                 Start = DateTimeOffset.UtcNow.ToUnixTimeSeconds(),
                 End = (roomInfo.roomState == RoomState.InGame) ? (DateTimeOffset.UtcNow.ToUnixTimeSeconds() + Mathf.RoundToInt(roomInfo.selectedSong.songDuration)) : 0
             };
 
-            ActivitySecrets secrets = new ActivitySecrets()
+            GameActivitySecrets secrets = new GameActivitySecrets()
             {
                 Join = usePassword ? $"{ip}:{port}?{roomId}#{password}" : $"{ip}:{port}?{roomId}#"
             };
 
-            ActivityAssets assets = new ActivityAssets()
+            GameActivityAssets assets = new GameActivityAssets()
             {
                 LargeImage = "default",
                 LargeText = GetActivityDetails(true),
                 SmallImage = roomInfo.roomState == RoomState.InGame ? GetCharacteristicIconID(Client.Instance.playerInfo.updateInfo.playerLevelOptions.characteristicName) : "multiplayer",
                 SmallText = roomInfo.roomState == RoomState.InGame ? GetFancyCharacteristicName(Client.Instance.playerInfo.updateInfo.playerLevelOptions.characteristicName) : "Multiplayer"
             };
-
-            Plugin.discordActivity = new Discord.Activity
+            Plugin.gameActivity = new GameActivity
             {
                 State = RoomInfo.StateToActivityState(roomInfo.roomState),
                 Details = GetActivityDetails(false),
@@ -1282,7 +1276,7 @@ namespace BeatSaberMultiplayerLite.UI.FlowCoordinators
                 Instance = true,
             };
 
-            Plugin.discord?.UpdateActivity(Plugin.discordActivity);
+            Plugin.discord?.UpdateActivity(Plugin.gameActivity);
         }
 
         private string GetActivityDetails(bool includeAuthorName)
@@ -1329,7 +1323,6 @@ namespace BeatSaberMultiplayerLite.UI.FlowCoordinators
             }
             return "empty";
         }
-#endif
         #endregion
 
     }
