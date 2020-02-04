@@ -96,13 +96,14 @@ namespace BeatSaberMultiplayer.UI.FlowCoordinators
             }
         }
 
-        private void RoomSelected(ServerHubRoom selectedRoom)
+        private void RoomSelected(ServerHubRoom selectedRoom, string password)
         {
-            JoinRoom(selectedRoom.ip, selectedRoom.port, selectedRoom.roomInfo.roomId, selectedRoom.roomInfo.usePassword);
+            JoinRoom(selectedRoom.ip, selectedRoom.port, selectedRoom.roomInfo.roomId, selectedRoom.roomInfo.usePassword, password);
         }
 
         public void JoinRoom(string ip, int port, uint roomId, bool usePassword, string pass = "")
         {
+            pass = pass?.ToUpper();
             PresentFlowCoordinator(PluginUI.instance.roomFlowCoordinator, null, false, false);
             PluginUI.instance.roomFlowCoordinator.JoinRoom(ip, port, roomId, usePassword, pass);
             Client.Instance.inRadioMode = false;

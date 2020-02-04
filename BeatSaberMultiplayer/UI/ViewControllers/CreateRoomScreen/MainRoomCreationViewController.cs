@@ -1,5 +1,6 @@
 ﻿using BeatSaberMarkupLanguage.Attributes;
 using BeatSaberMarkupLanguage.Components;
+using BeatSaberMarkupLanguage.Components.Settings;
 using BeatSaberMarkupLanguage.Parser;
 using BeatSaberMarkupLanguage.ViewControllers;
 using BeatSaberMultiplayer.Data;
@@ -46,6 +47,10 @@ namespace BeatSaberMultiplayer.UI.ViewControllers.CreateRoomScreen
 
         [UIComponent("preset-name-keyboard")]
         private ModalKeyboard _presetNameKeyboard;
+        [UIComponent("room-name-keyboard")]
+        private StringSetting _roomNameKeyboard;
+        [UIComponent("password-keyboard")]
+        private StringSetting _passwordKeyboard;
 
         protected override void DidActivate(bool firstActivation, ActivationType activationType)
         {
@@ -61,11 +66,23 @@ namespace BeatSaberMultiplayer.UI.ViewControllers.CreateRoomScreen
             parserParams.EmitEvent("cancel");
         }
 
+        protected override void DidDeactivate(DeactivationType deactivationType)
+        {
+            parserParams.EmitEvent("closeAllMPModals");
+            if (_roomNameKeyboard != null)
+            {
+                _roomNameKeyboard.modalKeyboard.modalView.Hide(false);
+            }
+            if (_passwordKeyboard != null)
+                _passwordKeyboard.modalKeyboard.modalView.Hide(false);
+            base.DidDeactivate(deactivationType);
+        }
+
         public void ApplyRoomSettings(RoomSettings settings)
         {
             _roomName = settings.Name;
 
-            _usePassword = settings.UsePassword;
+            _usePassword = settings.UsePassword && !string.IsNullOrEmpty(settings.Password);
             _roomPassword = settings.Password;
             _allowPerPlayerDifficulty = settings.PerPlayerDifficulty;
             _maxPlayers = settings.MaxPlayers;
@@ -147,7 +164,7 @@ namespace BeatSaberMultiplayer.UI.ViewControllers.CreateRoomScreen
         [UIAction("create-room-btn-pressed")]
         private void CreateRoomBtnPressed()
         {
-            CreatedRoom?.Invoke(new RoomSettings() { Name = _roomName, UsePassword = _usePassword, Password = _roomPassword, PerPlayerDifficulty = _allowPerPlayerDifficulty, MaxPlayers = _maxPlayers, SelectionType = _songSelectionType, ResultsShowTime = _resultsShowTime });
+            CreatedRoom?.Invoke(new RoomSettings() { Name = _roomName, UsePassword = _usePassword && !string.IsNullOrEmpty(_roomPassword), Password = _roomPassword, PerPlayerDifficulty = _allowPerPlayerDifficulty, MaxPlayers = _maxPlayers, SelectionType = _songSelectionType, ResultsShowTime = _resultsShowTime });
         }
     }
 }
