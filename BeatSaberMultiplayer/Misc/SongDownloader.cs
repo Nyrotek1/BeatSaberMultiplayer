@@ -10,6 +10,7 @@ using System.Text;
 using System.Threading.Tasks;
 using UnityEngine;
 using UnityEngine.Networking;
+using static BeatSaberMultiplayerLite.Misc.ZipUtilities;
 
 namespace BeatSaberMultiplayerLite.Misc
 {
@@ -73,7 +74,7 @@ namespace BeatSaberMultiplayerLite.Misc
                 songInfo.songQueueState = SongQueueState.Downloaded;
                 songDownloaded?.Invoke(songInfo);
                 downloadedCallback?.Invoke(true);
-                yield break; 
+                yield break;
             }
             UnityWebRequest www;
             bool timeout = false;
@@ -83,7 +84,7 @@ namespace BeatSaberMultiplayerLite.Misc
             try
             {
                 www = UnityWebRequest.Get(songInfo.downloadURL);
-                www.SetRequestHeader("User-Agent", "BeatSaverMultiplayer/7.0.0-z");
+                www.SetRequestHeader("User-Agent", $"{Plugin.PluginID}/{Plugin.PluginVersion}");
                 asyncRequest = www.SendWebRequest();
             }
             catch (Exception e)
@@ -152,8 +153,24 @@ namespace BeatSaberMultiplayerLite.Misc
 
                 Task extract = ExtractZipAsync(songInfo, zipStream, customSongsPath);
                 yield return new WaitWhile(() => !extract.IsCompleted);
-                songDownloaded?.Invoke(songInfo);
-                downloadedCallback?.Invoke(true);
+                Plugin.log.Debug($"ExtractZipAsync complete for song: {songInfo.path}");
+                try
+                {
+                    string generatedHash = Hashing.GenerateHash(songInfo.path, songInfo.hash);
+                }
+                catch (Exception ex)
+                {
+                    Plugin.log.Error($"Error hashing song in directory {songInfo.path}: {ex.Message}");
+                    Plugin.log.Debug(ex);
+                }
+                if (songDownloaded != null)
+                    songDownloaded.Invoke(songInfo);
+                else
+                    Plugin.log.Debug($"{nameof(songDownloaded)} has no handlers to invoke.");
+                if (downloadedCallback != null)
+                    downloadedCallback.Invoke(true);
+                else
+                    Plugin.log.Debug($"No callbacks assigned to {downloadedCallback}");
             }
         }
 
@@ -163,10 +180,10 @@ namespace BeatSaberMultiplayerLite.Misc
             {
                 Plugin.log.Debug("Extracting...");
                 _extractingZip = true;
-                ZipArchive archive = new ZipArchive(zipStream, ZipArchiveMode.Read);
+                //ZipArchive archive = new ZipArchive(zipStream, ZipArchiveMode.Read);
                 string basePath = songInfo.key + " (" + songInfo.songName + " - " + songInfo.levelAuthorName + ")";
                 basePath = string.Join("", basePath.Split((Path.GetInvalidFileNameChars().Concat(Path.GetInvalidPathChars()).ToArray())));
-                string path = customSongsPath + "/" + basePath;
+                string path = Path.GetFullPath(Path.Combine(customSongsPath, basePath));
 
                 if (Directory.Exists(path))
                 {
@@ -174,13 +191,29 @@ namespace BeatSaberMultiplayerLite.Misc
                     while (Directory.Exists(path + $" ({pathNum})")) ++pathNum;
                     path += $" ({pathNum})";
                 }
-                await Task.Run(() => archive.ExtractToDirectory(path)).ConfigureAwait(false);
-                archive.Dispose();
-                songInfo.path = path;
+                Plugin.log.Debug($"Extracing to '{path}'");
+                ZipExtractResult result = await Task.Run(() => ZipUtilities.ExtractZip(zipStream, path, true));
+                if (result.ResultStatus != ZipExtractResultStatus.Success || result.Exception != null)
+                {
+                    Plugin.log.Error($"Error extracting song zip to folder: {result.Exception.Message}");
+                    Plugin.log.Debug(result.Exception);
+                    _extractingZip = false;
+                    return;
+                }
+                //await Task.Run(() => archive.ExtractToDirectory(path)).ConfigureAwait(false);
+                //archive.Dispose();
+                if (result.OutputDirectory != path)
+                {
+                    Plugin.log.Warn($"ZipExtractResult OutputDirectory ({result.OutputDirectory}) does not match path ({path})");
+                    songInfo.path = result.OutputDirectory;
+                }
+                else
+                    songInfo.path = path;
             }
             catch (Exception e)
             {
-                Plugin.log.Critical($"Unable to extract ZIP! Exception: {e}");
+                Plugin.log.Critical($"Unable to extract ZIP! Exception: {e.Message}");
+                Plugin.log.Debug(e);
                 songInfo.songQueueState = SongQueueState.Error;
                 _extractingZip = false;
                 return;
@@ -245,6 +278,7 @@ namespace BeatSaberMultiplayerLite.Misc
 
         public IEnumerator RequestSongByLevelIDCoroutine(string levelId, Action<Song> callback)
         {
+            Plugin.log.Debug($"Requesting song ({levelId.ToLower()}) from Beat Saver");
             UnityWebRequest wwwId = UnityWebRequest.Get($"{Config.Instance.BeatSaverURL}/api/maps/by-hash/" + levelId.ToLower());
             wwwId.timeout = 10;
 

@@ -19,6 +19,8 @@ namespace BeatSaberMultiplayerLite
         [SerializeField] private int _submitScores;
         [SerializeField] private string _beatSaverURL;
 
+        [SerializeField] private bool _enableRichPresence;
+
         [SerializeField] private bool _enableVoiceChat;
         [SerializeField] private float _voiceChatVolume;
         [SerializeField] private bool _micEnabled;
@@ -39,8 +41,8 @@ namespace BeatSaberMultiplayerLite
         private static readonly Dictionary<string, string[]> newServerHubs = new Dictionary<string, string[]>()
         {
             {
-                "0.7.0.0",
-                new string[] { "127.0.0.1", "bs.tigersserver.xyz", "treasurehunters.nz", "www.questboard.xyz", "bbbear-wgzeyu.gtxcn.com", "pantie.xicp.net"}
+                "0.7.1.0",
+                new string[] { "127.0.0.1" }
             }
         };
 
@@ -58,7 +60,7 @@ namespace BeatSaberMultiplayerLite
                 Plugin.log.Debug($"Attempting to load JSON @ {FileLocation.FullName}");
                 _instance = JsonUtility.FromJson<Config>(File.ReadAllText(FileLocation.FullName));
 
-                UpdateServerHubs(_instance);
+                UpdateModVersion(_instance);
 
                 _instance.MarkDirty();
                 _instance.Save();
@@ -89,9 +91,9 @@ namespace BeatSaberMultiplayerLite
             return true;
         }
 
-        public static void UpdateServerHubs(Config _instance)
+        public static void UpdateModVersion(Config _instance)
         {
-            SemVer.Version modVersion = IPA.Loader.PluginManager.GetPluginFromId("BeatSaberMultiplayerLite").Metadata.Version;
+            SemVer.Version modVersion = IPA.Loader.PluginManager.GetPluginFromId(Plugin.PluginID).Metadata.Version;
             if (string.IsNullOrEmpty(_instance.ModVersion) || new SemVer.Range($">{_instance.ModVersion}", true).IsSatisfied(modVersion))
             {
                 List<string> newVersions = null;
@@ -139,7 +141,7 @@ namespace BeatSaberMultiplayerLite
                 if (_instance == null)
                 {
                     _instance = new Config();
-                    UpdateServerHubs(_instance);
+                    UpdateModVersion(_instance);
                 }
                 return _instance;
             }
@@ -236,6 +238,22 @@ namespace BeatSaberMultiplayerLite
             set
             {
                 _beatSaverURL = value;
+                MarkDirty();
+            }
+        }
+
+        public bool EnableRichPresence
+        {
+            get { return _enableRichPresence; }
+            set
+            {
+                if (_enableRichPresence == value)
+                    return;
+                _enableRichPresence = value;
+                if (_enableRichPresence == false)
+                    Plugin.PresenceManager?.ClearActivity();
+                else
+                    Plugin.PresenceManager?.UpdateActivity();
                 MarkDirty();
             }
         }
@@ -352,6 +370,8 @@ namespace BeatSaberMultiplayerLite
             _spectatorMode = false;
             _submitScores = 2;
             _beatSaverURL = "https://beatsaver.com";
+
+            _enableRichPresence = true;
 
             _enableVoiceChat = false;
             _voiceChatVolume = 0.8f;

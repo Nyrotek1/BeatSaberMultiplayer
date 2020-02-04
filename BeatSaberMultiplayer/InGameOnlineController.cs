@@ -63,7 +63,7 @@ namespace BeatSaberMultiplayerLite
         private VRPlatformHelper _vrPlatformHelper;
         private VRControllersInputManager _vrInputManager;
 
-        private PlayerAvatarInput _avatarInput;
+        private PlayerPosition _avatarInput;
 
         public Dictionary<ulong, OnlinePlayerController> players = new Dictionary<ulong, OnlinePlayerController>();
         public List<PlayerScore> playerScores;
@@ -267,9 +267,10 @@ namespace BeatSaberMultiplayerLite
             {
                 StartCoroutine(WaitForControllers());
                 needToSendUpdates = true;
+                if (Config.Instance.SubmitScores == 0 || Config.Instance.SpectatorMode || Client.disableScoreSubmission)
+                    BS_Utils.Gameplay.ScoreSubmission.DisableSubmission($"{Plugin.PluginName}");
             }
         }
-
 
         public void PacketReceived(NetIncomingMessage msg)
         {
@@ -630,8 +631,8 @@ namespace BeatSaberMultiplayerLite
                             currentState |= PTTOption.RightTrigger;
                         isRecording = currentState.Satisfies(Config.Instance.PushToTalkButton);
                     }
-                else
-                    isRecording = false;
+                    else
+                        isRecording = false;
 
 #if DEBUG
                 if ((_vrInputManager.TriggerValue(XRNode.LeftHand) > 0.85f && ControllersHelper.GetRightGrip() && _vrInputManager.TriggerValue(XRNode.RightHand) > 0.85f && ControllersHelper.GetLeftGrip()) || Input.GetKey(KeyCode.P))
@@ -779,7 +780,7 @@ namespace BeatSaberMultiplayerLite
 
             if (_avatarInput == null)
             {
-                _avatarInput = PlayerAvatarInput.instance;//CustomAvatar.Plugin.Instance.PlayerAvatarManager._playerAvatarInput;
+                _avatarInput = PlayerPosition.instance;//CustomAvatar.Plugin.Instance.PlayerAvatarManager._playerAvatarInput;
             }
 
             var head = _avatarInput.HeadPosRot;

@@ -1,5 +1,6 @@
 ﻿using BeatSaberMarkupLanguage.Attributes;
 using BeatSaberMarkupLanguage.Components;
+using BeatSaberMarkupLanguage.Parser;
 using BeatSaberMarkupLanguage.ViewControllers;
 using BeatSaberMultiplayerLite.Data;
 using BeatSaberMultiplayerLite.UI.FlowCoordinators;
@@ -18,8 +19,10 @@ namespace BeatSaberMultiplayerLite.UI.ViewControllers.ServerHubScreen
         public override string ResourceName => string.Join(".", GetType().Namespace, GetType().Name);
 
         public event Action createRoomButtonPressed;
-        public event Action<ServerHubRoom> selectedRoom;
+        public event Action<ServerHubRoom, string> selectedRoom;
         public event Action refreshPressed;
+        [UIParams]
+        private BSMLParserParams parserParams;
 
         [UIComponent("refresh-btn")]
         private Button _refreshButton;
@@ -27,14 +30,25 @@ namespace BeatSaberMultiplayerLite.UI.ViewControllers.ServerHubScreen
         [UIComponent("rooms-list")]
         public CustomCellListTableData roomsList;
 
+        [UIComponent("password-keyboard")]
+        ModalKeyboard _passwordKeyboard;
+
         [UIValue("rooms")]
         public List<object> roomInfosList = new List<object>();
+
+        private ServerHubRoom _selectedRoom;
 
         protected override void DidActivate(bool firstActivation, ActivationType type)
         {
             base.DidActivate(firstActivation, type);
 
             roomsList.tableView.ClearSelection();
+        }
+
+        protected override void DidDeactivate(DeactivationType deactivationType)
+        {
+            parserParams.EmitEvent("closeAllMPModals");
+            base.DidDeactivate(deactivationType);
         }
 
         public void SetRooms(List<ServerHubRoom> rooms)
@@ -62,7 +76,21 @@ namespace BeatSaberMultiplayerLite.UI.ViewControllers.ServerHubScreen
         [UIAction("room-selected")]
         private void RoomSelected(TableView sender, RoomListObject obj)
         {
-            selectedRoom?.Invoke(obj.room);
+            if (!obj.room.roomInfo.usePassword)
+            {
+                selectedRoom?.Invoke(obj.room, null);
+            }
+            else
+            {
+                _selectedRoom = obj.room;
+                _passwordKeyboard.modalView.Show(true);
+            }
+        }
+
+        [UIAction("join-pressed")]
+        private void PasswordEntered(string pass)
+        {
+            selectedRoom?.Invoke(_selectedRoom, pass);
         }
 
         [UIAction("create-room-btn-pressed")]

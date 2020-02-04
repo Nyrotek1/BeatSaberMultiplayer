@@ -7,10 +7,10 @@ using TMPro;
 using UnityEngine;
 using UnityEngine.UI;
 using BeatSaberMultiplayerLite.UI.FlowCoordinators;
+using BeatSaberMultiplayerLite.Interop;
 using BeatSaberMarkupLanguage.ViewControllers;
 using BeatSaberMarkupLanguage.Attributes;
 using BeatSaberMarkupLanguage.Components;
-using IPA.Utilities;
 using BeatSaberMarkupLanguage.Parser;
 
 namespace BeatSaberMultiplayerLite.UI.ViewControllers.RoomScreen
@@ -20,8 +20,10 @@ namespace BeatSaberMultiplayerLite.UI.ViewControllers.RoomScreen
     class SongSelectionViewController : BSMLResourceViewController, TableView.IDataSource
     {
         public override string ResourceName => string.Join(".", GetType().Namespace, GetType().Name);
-
         public RoomFlowCoordinator ParentFlowCoordinator { get; internal set; }
+        private readonly IPAUtilities.PropertyAccessor<TableViewScroller, float>.Setter SetScrollPosition = IPAUtilities.PropertyAccessor<TableViewScroller, float>.GetSetter("position");
+        private readonly IPAUtilities.FieldAccessor<TableViewScroller, float>.Accessor TableViewScrollerTargetPosition = IPAUtilities.FieldAccessor<TableViewScroller, float>.GetAccessor("_targetPosition");
+        private readonly IPAUtilities.FieldAccessor<TableView, TableViewScroller>.Accessor GetTableViewScroller = IPAUtilities.FieldAccessor<TableView, TableViewScroller>.GetAccessor("_scroller");
         public event Action<IPreviewBeatmapLevel> SongSelected;
         public event Action<string> SearchPressed;
         public event Action<SortMode> SortPressed;
@@ -64,6 +66,21 @@ namespace BeatSaberMultiplayerLite.UI.ViewControllers.RoomScreen
                 NotifyPropertyChanged();
             }
         }
+        
+        private TableViewScroller _songListScroller;
+        public TableViewScroller SongListScroller
+        {
+            get
+            {
+                if (_songListScroller == null)
+                {
+                    _songListScroller = GetTableViewScroller(ref _songsTableView.tableView);
+                    _songListScroller.positionDidChangeEvent += _songListScroller_positionDidChangeEvent;
+                }
+                return _songListScroller;
+            }
+        }
+        
         private LevelListTableCell songListTableCellInstance;
         private PlayerDataModelSO _playerDataModel;
         private AdditionalContentModel _additionalContentModel;
@@ -79,13 +96,13 @@ namespace BeatSaberMultiplayerLite.UI.ViewControllers.RoomScreen
             {
                 if (Plugin.DownloaderExists)
                 {
-                    downloader = new SongDownloaderInterop();
+                    downloader = new BeatSaverDownloaderInterop();
                     if (downloader == null)
-                        Plugin.log.Warn($"{nameof(SongDownloaderInterop)} could not be created.");
+                        Plugin.log.Warn($"{nameof(BeatSaverDownloaderInterop)} could not be created.");
                     else
                     {
                         MoreSongsAvailable = downloader.CanCreate;
-                        Plugin.log.Info($"{nameof(MoreSongsAvailable)} is {MoreSongsAvailable}");
+                        Plugin.log.Debug($"{nameof(MoreSongsAvailable)} is {MoreSongsAvailable}");
                     }
                 }
                 else
@@ -103,22 +120,71 @@ namespace BeatSaberMultiplayerLite.UI.ViewControllers.RoomScreen
             SelectTopButtons(TopButtonsState.Select);
         }
 
+        protected override void DidDeactivate(DeactivationType deactivationType)
+        {
+            _parserParams.EmitEvent("closeAllMPModals");
+            base.DidDeactivate(deactivationType);
+        }
+
         public void SetSongs(List<IPreviewBeatmapLevel> levels)
         {
+            if (availableSongs == levels)
+                return;
             availableSongs = levels;
-
             _songsTableView.tableView.ReloadData();
             _songsTableView.tableView.ScrollToCellWithIdx(0, TableViewScroller.ScrollPositionType.Beginning, false);
-
             Plugin.log.Debug($"Set list of {levels.Count} levels!");
         }
 
-        public void ScrollToLevel(string levelId)
+        public void ClearSelection()
         {
+            _songsTableView.tableView.ClearSelection();
+        }
+
+        public void ScrollToLevel(string levelId, TableViewScroller.ScrollPositionType scrollType = TableViewScroller.ScrollPositionType.Beginning, bool animated = false)
+        {
+            if (string.IsNullOrEmpty(levelId))
+                return;
             if (availableSongs.Any(x => x.levelID == levelId))
             {
                 int row = availableSongs.FindIndex(x => x.levelID == levelId);
-                _songsTableView.tableView.ScrollToCellWithIdx(row, TableViewScroller.ScrollPositionType.Beginning, false);
+                _songsTableView.tableView.ScrollToCellWithIdx(row, scrollType, animated);
+            }
+        }
+
+        public bool ScrollToPosition(float position, bool animated = false)
+        {
+            TableViewScroller scroller = SongListScroller;
+#if DEBUG
+            Plugin.LogLocation($"Scrolling to position: {position} from {scroller.position}");
+#endif
+            if (position >= 0 && position <= scroller.scrollableSize)
+            {
+                float offset = 5;
+                if (position + offset > scroller.scrollableSize)
+                    offset *= -1;
+                if (position + offset < 0)
+                    offset = 0;
+                //Plugin.log.Debug($"Scrolling to ({position} - {offset}) / {scroller.scrollableSize}");
+                if (!animated)
+                {
+                    SetScrollPosition(ref scroller, position + offset);
+                }
+                TableViewScrollerTargetPosition(ref scroller) = position; // Need this so the list isn't blank when returning from a song
+
+                scroller.enabled = true;
+                return true;
+            }
+            else
+                Plugin.log.Warn($"Scroll position out of range: {position} / {scroller.scrollableSize}");
+            return false;
+        }
+
+        public void ScrollToIndex(int index, TableViewScroller.ScrollPositionType scrollType = TableViewScroller.ScrollPositionType.Beginning, bool animated = false)
+        {
+            if (index >= 0 && index < _songsTableView.tableView.numberOfCells)
+            {
+                _songsTableView.tableView.ScrollToCellWithIdx(index, scrollType, animated);
             }
         }
 
@@ -174,6 +240,20 @@ namespace BeatSaberMultiplayerLite.UI.ViewControllers.RoomScreen
         public void MoreButtonPressed()
         {
             downloader?.PresentDownloaderFlowCoordinator(ParentFlowCoordinator, MoreSongsFinishedCallback);
+        }
+
+        int LastRandomSong;
+        [UIAction("random-btn-pressed")]
+        public void RandomButtonPressed()
+        {
+            int songIndex = UnityEngine.Random.Range(0, availableSongs.Count - 1);//Plugin.log.Warn($"Position for cell size {_songsTableView.tableView.cellSize} is {songIndex * _songsTableView.tableView.cellSize}");
+            ScrollToIndex(songIndex, TableViewScroller.ScrollPositionType.Center, false);
+            if (LastRandomSong == songIndex)
+                return;
+            Plugin.log.Debug($"Random song: {availableSongs[songIndex].songName}");
+
+            _songsTableView.tableView.SelectCellWithIdx(songIndex, true);
+            LastRandomSong = songIndex;
         }
 
         public void MoreSongsFinishedCallback()
@@ -238,15 +318,21 @@ namespace BeatSaberMultiplayerLite.UI.ViewControllers.RoomScreen
 
             tableCell.SetDataFromLevelAsync(availableSongs[idx], _playerDataModel.playerData.favoritesLevelIds.Contains(availableSongs[idx].levelID));
             tableCell.RefreshAvailabilityAsync(_additionalContentModel, availableSongs[idx].levelID);
-
+            
             tableCell.reuseIdentifier = _songsTableView.reuseIdentifier;
             return tableCell;
+        }
+
+
+        private void _songListScroller_positionDidChangeEvent(TableViewScroller arg1, float arg2)
+        {
+            ParentFlowCoordinator.LastScrollPosition = arg2;
         }
 
         [UIAction("fast-scroll-down-pressed")]
         private void FastScrollDown()
         {
-            for(int i = 0; i < 5; i++)
+            for (int i = 0; i < 5; i++)
                 _parserParams.EmitEvent("song-list#PageDown");
         }
 
